@@ -1,0 +1,26 @@
+name: Sandbox probe
+on:
+  workflow_dispatch:
+    inputs:
+      scenario:
+        description: Scenario id (blank runs all)
+        required: false
+      respond:
+        description: Also answer and adjudicate each dispute
+        default: 'true'
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx tsx scripts/probe.ts ${{ inputs.scenario }}
+        env:
+          PAYPAL_CLIENT_ID: ${{ secrets.PAYPAL_CLIENT_ID }}
+          PAYPAL_CLIENT_SECRET: ${{ secrets.PAYPAL_CLIENT_SECRET }}
+          PAYPAL_BUYER_EMAIL: ${{ secrets.PAYPAL_BUYER_EMAIL }}
+          PROBE_RESPOND: ${{ inputs.respond }}
