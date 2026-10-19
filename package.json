@@ -1,0 +1,38 @@
+{
+  "name": "rebuttal",
+  "version": "0.1.0",
+  "description": "An AI agent that answers PayPal disputes with verified evidence and keeps every order eligible for Seller Protection.",
+  "scripts": {
+    "dev": "vite",
+    "dev:api": "wrangler dev --local",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "db:local": "wrangler d1 migrations apply rebuttal --local",
+    "deploy": "vite build && wrangler deploy"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@bryntum/scheduler": "npm:@bryntum/scheduler-trial@7.3.7",
+    "@bryntum/scheduler-react": "7.3.7",
+    "@fontsource/ibm-plex-mono": "^5.3.0",
+    "@fontsource/ibm-plex-sans": "^5.3.0",
+    "@paypal/paypal-js": "11.2.2",
+    "ag-studio": "3.0.0",
+    "ag-studio-react": "3.0.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261019.1",
+    "@types/react": "^18.3.31",
+    "@types/react-dom": "^18.3.7",
+    "@vitejs/plugin-react": "^6.1.2",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.4",
+    "vitest": "^5.0.5",
+    "wrangler": "^4.151.2"
+  },
+  "private": true,
+  "type": "module"
+}

@@ -1,0 +1,7 @@
+.tl-host { overflow: hidden; padding: 0; }
+.tl-host .b-scheduler { height: 100%; font-family: var(--sans); }
+.tl-res { line-height: 1.3; }
+.tl-sub { font-size: 11.5px; color: var(--muted); font-family: var(--mono); }
+.due-band { background-color: rgba(178, 59, 49, 0.14); }
+.legend { display: inline-block; width: 14px; height: 10px; border-radius: 3px; margin-right: 4px; vertical-align: middle; }
+.legend.hollow { border: 2px solid; background: transparent; }
