@@ -1,8 +1,8 @@
-# Rebuttal
+# Proofline
 
 **An AI agent that answers PayPal disputes with verified evidence, and keeps every order eligible for Seller Protection.**
 
-Small sellers lose disputes they should win. They miss the response deadline, never upload tracking to PayPal, or send a vague reply without the proof PayPal needs. Rebuttal watches the seller's PayPal account, and for each new dispute it:
+Small sellers lose disputes they should win. They miss the response deadline, never upload tracking to PayPal, or send a vague reply without the proof PayPal needs. Proofline watches the seller's PayPal account, and for each new dispute it:
 
 1. **Gathers the facts** from PayPal (the dispute, the order, the capture, refunds, messages, tracking) and from the store's own records (carrier events, listing snapshots).
 2. **Scores the case** against an explainable evidence playbook per dispute reason. For example, an "item not received" claim needs tracking on the PayPal transaction, carrier-confirmed delivery to the address on the transaction, and signature confirmation at $750 or more.
@@ -28,7 +28,7 @@ Sandbox buyer for the demo shop: _added at deploy time_ (PayPal sandbox, no real
 | Fact checker | Verifies amounts, dates, ids and claims in AI drafts | `shared/grounding.ts` |
 | Tracking validator | Carrier formats for UPS, USPS, FedEx, DHL, Royal Mail, Canada Post | `shared/tracking.ts` |
 | Agent | Gather, assess, draft, verify, queue; autopilot sweep every 10 minutes | `worker/agent.ts` |
-| Ask Rebuttal | Read-only tool-calling assistant over cases and orders | `worker/assistant.ts` |
+| Ask Proofline | Read-only tool-calling assistant over cases and orders | `worker/assistant.ts` |
 | PayPal client | Disputes, Orders, Payments, tracking, sandbox dispute simulation | `worker/paypal.ts` |
 | Web app | Cases, case detail, deadlines, insights, protection, ask, demo lab, shop | `web/src` |
 

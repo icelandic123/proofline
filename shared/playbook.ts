@@ -14,8 +14,17 @@ import type {
   Tracker,
 } from './types';
 
-/** PayPal (US) requires signature confirmation for Seller Protection at or above this amount. */
-export const SIGNATURE_THRESHOLD_USD = 750;
+/** Above this amount, signature confirmation is recommended (not required by PayPal's current US Seller Protection policy). */
+export const SIGNATURE_ADVISED_USD = 750;
+
+/**
+ * PayPal US fees (paypal.com/us/business/paypal-business-fees, read 2026-10-19):
+ * a standard dispute fee is charged when a PayPal claim is decided against the
+ * seller; it is waived if the seller wins, settles directly with the buyer, is
+ * covered by Seller Protection, for unauthorized claims filed with PayPal, and
+ * for claims under twice the fee. Card chargebacks carry a fee whatever happens.
+ */
+export const CHARGEBACK_FEE_USD = 20;
 
 /** Starting win estimate per reason before any evidence is counted. */
 const BASE_WIN: Record<DisputeReason, number> = {
@@ -84,7 +93,7 @@ function fulfilmentChecks(facts: CaseFacts, requireDelivery: boolean): EvidenceC
   if (order.intangible) {
     return [
       check('intangible', 'Digital or service delivery record', 'unknown', 0.3,
-        'This order has no shipment. Seller Protection does not cover intangible goods, so access logs or proof of service carry the case.',
+        'This order has no shipment. Seller Protection does not cover most intangible goods, so access logs or proof of service carry the case.',
         'Attach download or login logs that show the buyer used the purchase.'),
     ];
   }
@@ -92,44 +101,66 @@ function fulfilmentChecks(facts: CaseFacts, requireDelivery: boolean): EvidenceC
   const checks: EvidenceCheck[] = [];
   checks.push(
     t
-      ? check('tracking', 'Tracking number on file', 'pass', 0.15, `${t.carrier} ${t.trackingNumber}.`)
-      : check('tracking', 'Tracking number on file', 'fail', 0.15, 'No tracking number was recorded for this order.', 'Paste the shipping confirmation in Protection so the agent can attach it.'),
+      ? check('tracking', 'Tracking number on file', 'pass', 0.1, `${t.carrier} ${t.trackingNumber}.`)
+      : check('tracking', 'Tracking number on file', 'fail', 0.1, 'No tracking number was recorded for this order.', 'Paste the shipping confirmation in Protection so the agent can attach it.'),
   );
   checks.push(
     t?.uploadedToPayPal
-      ? check('uploaded', 'Tracking uploaded to PayPal', 'pass', 0.1, `Uploaded ${t.uploadedAt?.slice(0, 10) ?? ''}.`.trim())
-      : check('uploaded', 'Tracking uploaded to PayPal', t ? 'fail' : 'na', 0.1,
+      ? check('uploaded', 'Tracking uploaded to PayPal', 'pass', 0.05, `Uploaded ${t.uploadedAt?.slice(0, 10) ?? ''}.`.trim())
+      : check('uploaded', 'Tracking uploaded to PayPal', t ? 'fail' : 'na', 0.05,
           t ? 'Tracking exists but PayPal does not have it yet.' : 'Nothing to upload yet.',
           t ? 'Approve the agent\'s tracking upload.' : undefined),
   );
+  const delivered = t?.carrierStatus === 'DELIVERED';
   if (requireDelivery) {
     checks.push(
-      t?.carrierStatus === 'DELIVERED'
-        ? check('delivered', 'Carrier confirms delivery', 'pass', 0.3, `Delivered ${t.deliveredAt?.slice(0, 10) ?? ''}.`.trim())
-        : check('delivered', 'Carrier confirms delivery', t ? 'fail' : 'na', 0.3,
-            t ? `Latest carrier status is ${t.carrierStatus ?? 'unknown'}.` : 'No shipment to check.'),
-    );
-    const addrOk = t?.deliveredTo ? sameAddress(t.deliveredTo, order.shippingAddress) : undefined;
-    checks.push(
-      addrOk === undefined
-        ? check('address', 'Delivered to the PayPal shipping address', t?.carrierStatus === 'DELIVERED' ? 'unknown' : 'na', 0.15,
-            'The carrier did not report a delivery address.')
-        : addrOk
-          ? check('address', 'Delivered to the PayPal shipping address', 'pass', 0.15, 'Carrier delivery address matches the address on the PayPal transaction.')
-          : check('address', 'Delivered to the PayPal shipping address', 'fail', 0.15,
-              'The carrier delivered to a different address than the one on the PayPal transaction, which voids Seller Protection.'),
+      delivered
+        ? check('delivered', 'Carrier confirms delivery', 'pass', 0.25, `Delivered ${t?.deliveredAt?.slice(0, 10) ?? ''}.`.trim())
+        : check('delivered', 'Carrier confirms delivery', t ? 'fail' : 'na', 0.25,
+            t ? `Latest carrier status is ${(t.carrierStatus ?? 'unknown').toLowerCase().replace('_', ' ')}. "Item not received" claims need proof of delivery.` : 'No shipment to check.'),
     );
   }
-  if (amount >= SIGNATURE_THRESHOLD_USD) {
+  const addrOk = t?.deliveredTo ? sameAddress(t.deliveredTo, order.shippingAddress) : undefined;
+  checks.push(
+    addrOk === undefined
+      ? check('address', 'Sent to the address on the PayPal transaction', t && delivered ? 'unknown' : 'na', 0.1,
+          'The carrier did not report the delivery address.')
+      : addrOk
+        ? check('address', 'Sent to the address on the PayPal transaction', 'pass', 0.1, 'The carrier\'s address matches the shipping address on the PayPal transaction.')
+        : check('address', 'Sent to the address on the PayPal transaction', 'fail', 0.1,
+            'The carrier delivered to a different address than the one on the PayPal transaction, which rules out Seller Protection.'),
+  );
+  if (amount >= SIGNATURE_ADVISED_USD && t) {
     checks.push(
-      t?.signatureConfirmed
-        ? check('signature', 'Signature confirmation', 'pass', 0.15, `Required at $${SIGNATURE_THRESHOLD_USD}+ and present.`)
-        : check('signature', 'Signature confirmation', 'fail', 0.15,
-            `PayPal requires signature confirmation for orders of $${SIGNATURE_THRESHOLD_USD} or more, and this shipment has none.`,
-            'Ship high-value orders with signature confirmation.'),
+      t.signatureConfirmed
+        ? check('signature', 'Signature confirmation', 'pass', 0.05, 'The buyer signed for this high-value parcel.')
+        : check('signature', 'Signature confirmation', 'unknown', 0.05,
+            'No signature on a high-value parcel. PayPal does not require one, but it makes "not received" and "unauthorized" claims easier to win.',
+            'Add signature confirmation to orders over $750.'),
     );
   }
+  checks.push(sellerProtectionCheck(facts, t, delivered, addrOk));
   return checks;
+}
+
+/** PayPal US Seller Protection (policy updated 2026-01-26): physical goods sent to the transaction address, with proof of delivery (not received) or proof of shipment (unauthorized). */
+function sellerProtectionCheck(facts: CaseFacts, t: Tracker | undefined, delivered: boolean, addrOk: boolean | undefined): EvidenceCheck {
+  const reason = facts.dispute.reason;
+  const label = 'Covered by PayPal Seller Protection';
+  if (reason !== 'MERCHANDISE_OR_SERVICE_NOT_RECEIVED' && reason !== 'UNAUTHORISED') {
+    return check('protection', label, 'na', 0, 'Seller Protection only covers "item not received" and "unauthorized" claims.');
+  }
+  if (facts.dispute.stage === 'CHARGEBACK' && reason === 'MERCHANDISE_OR_SERVICE_NOT_RECEIVED') {
+    return check('protection', label, 'fail', 0.2, 'Claims that start as card chargebacks are not eligible.');
+  }
+  const proofOk = reason === 'UNAUTHORISED' ? !!t : delivered;
+  if (proofOk && addrOk) {
+    return check('protection', label, 'pass', 0.2,
+      reason === 'UNAUTHORISED' ? 'Proof of shipment to the transaction address. PayPal also waives the dispute fee on covered claims.' : 'Proof of delivery to the transaction address. PayPal also waives the dispute fee on covered claims.');
+  }
+  if (proofOk && addrOk === undefined) return check('protection', label, 'unknown', 0.2, 'Likely covered once the delivery address is confirmed.');
+  return check('protection', label, 'fail', 0.2,
+    reason === 'UNAUTHORISED' ? 'No proof of shipment to the transaction address.' : 'No proof of delivery to the transaction address yet.');
 }
 
 function buyerHistoryCheck(facts: CaseFacts, weight: number): EvidenceCheck {
@@ -197,25 +228,46 @@ export function winProbability(reason: DisputeReason, checks: EvidenceCheck[]): 
     else if (c.status === 'unknown') p += c.weight * 0.3;
   }
   // A failed hard requirement caps the case.
-  const hardFail = checks.some((c) => (c.id === 'address' || c.id === 'signature') && c.status === 'fail');
+  const hardFail = checks.some((c) => c.id === 'address' && c.status === 'fail');
   if (hardFail) p = Math.min(p, 0.25);
   return Math.round(Math.max(0.02, Math.min(0.95, p)) * 100) / 100;
 }
 
 const money = (n: number) => Math.round(n * 100) / 100;
 
-export function actionOptions(facts: CaseFacts, p: number): ActionOption[] {
+/** The fee the seller pays only if PayPal decides a claim against them (see the fee note at the top). */
+export function feeIfLost(facts: CaseFacts, covered: boolean): number {
   const amount = amountOf(facts);
-  const { disputeFee, timeCostPerCase, costOfGoodsRatio, returnWindowDays } = facts.storePolicy;
+  const fee = facts.storePolicy.disputeFee;
+  if (facts.dispute.stage === 'CHARGEBACK') return 0; // the card chargeback fee is charged whatever happens
+  if (facts.dispute.reason === 'UNAUTHORISED' || covered || amount < 2 * fee) return 0;
+  return fee;
+}
+
+export function actionOptions(facts: CaseFacts, p: number, checks: EvidenceCheck[] = []): ActionOption[] {
+  const amount = amountOf(facts);
+  const { timeCostPerCase, costOfGoodsRatio, returnWindowDays } = facts.storePolicy;
   const reason = facts.dispute.reason;
   const options: ActionOption[] = [];
+  const covered = checks.some((c) => c.id === 'protection' && c.status === 'pass');
+  const fee = feeIfLost(facts, covered);
+  const chargebackNote = facts.dispute.stage === 'CHARGEBACK' ? ` A ${CHARGEBACK_FEE_USD.toFixed(2)} card chargeback fee applies whatever you choose.` : '';
 
-  options.push({
-    kind: 'FIGHT',
-    label: 'Fight with evidence',
-    expectedLoss: money((1 - p) * (amount + disputeFee) + timeCostPerCase),
-    explanation: `${Math.round(p * 100)}% estimated win. If lost: the ${amount.toFixed(2)} payment plus a ${disputeFee.toFixed(2)} fee.`,
-  });
+  options.push(
+    covered
+      ? {
+          kind: 'FIGHT',
+          label: 'Fight with evidence',
+          expectedLoss: money(timeCostPerCase),
+          explanation: `Covered by Seller Protection: PayPal reimburses the ${amount.toFixed(2)} if the claim goes against you, and waives the fee. The only cost is your time.`,
+        }
+      : {
+          kind: 'FIGHT',
+          label: 'Fight with evidence',
+          expectedLoss: money((1 - p) * (amount + fee) + timeCostPerCase),
+          explanation: `${Math.round(p * 100)}% estimated win. If lost: the ${amount.toFixed(2)} payment${fee ? ` plus a ${fee.toFixed(2)} dispute fee` : ''}.${chargebackNote}`,
+        },
+  );
 
   // Refunding returns the money; for not-as-described the item normally comes back.
   const itemComesBack = reason === 'MERCHANDISE_OR_SERVICE_NOT_AS_DESCRIBED' && returnWindowDays > 0;
@@ -225,7 +277,7 @@ export function actionOptions(facts: CaseFacts, p: number): ActionOption[] {
     expectedLoss: money(itemComesBack ? amount * 0.12 : amount),
     explanation: itemComesBack
       ? 'Buyer returns the item. Loss is shipping and handling, estimated at 12% of the price.'
-      : `Refund ${amount.toFixed(2)}. The buyer keeps the goods.`,
+      : `Refund ${amount.toFixed(2)}. The buyer keeps the goods. No dispute fee when you settle before PayPal decides.${chargebackNote}`,
   });
 
   if (reason === 'MERCHANDISE_OR_SERVICE_NOT_AS_DESCRIBED') {
@@ -234,7 +286,7 @@ export function actionOptions(facts: CaseFacts, p: number): ActionOption[] {
     options.push({
       kind: 'OFFER',
       label: `Offer a $${offer.toFixed(2)} partial refund`,
-      expectedLoss: money(accept * offer + (1 - accept) * ((1 - p) * (amount + disputeFee) + timeCostPerCase)),
+      expectedLoss: money(accept * offer + (1 - accept) * ((1 - p) * (amount + fee) + timeCostPerCase)),
       explanation: `Buyer keeps the item at 30% off. Assumes about half of buyers accept; otherwise the case continues.`,
     });
   }
@@ -273,7 +325,7 @@ export function evidenceFor(facts: CaseFacts): EvidenceItem[] {
 export function planCase(facts: CaseFacts, now = new Date()): CasePlan {
   const checks = evidenceChecks(facts);
   const p = winProbability(facts.dispute.reason, checks);
-  const options = actionOptions(facts, p);
+  const options = actionOptions(facts, p, checks);
   let recommended: ActionKind = options[0].kind;
   // Small amounts: the seller's own rule wins unless evidence is very strong.
   if (amountOf(facts) <= facts.storePolicy.autoRefundBelow && p < 0.8) recommended = 'REFUND';

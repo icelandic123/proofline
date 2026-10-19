@@ -1,4 +1,4 @@
--- Rebuttal state. PayPal stays the system of record for disputes and orders;
+-- Proofline state. PayPal stays the system of record for disputes and orders;
 -- these tables hold the agent's work, the seller's decisions and the store's
 -- own fulfilment records (carrier events, listing snapshots).
 CREATE TABLE IF NOT EXISTS cases (

@@ -43,13 +43,13 @@ export default function TimelineView({ overview }: { overview?: Overview }) {
       const closed = d.status === 'RESOLVED';
       const endOfWork = decidedAt ?? (closed ? Date.parse(d.updatedAt) : Math.max(now, opened + DAY / 4));
       events.push({
-        id: `${d.id}-open`, resourceId: d.id, name: decidedAt ? 'Agent drafted, you approved' : 'Agent assessed, waiting for you',
+        id: `${d.id}-open`, resourceId: d.id, name: decidedAt ? 'You approved' : 'Needs you',
         startDate: new Date(opened), endDate: new Date(Math.max(endOfWork, opened + DAY / 3)),
-        eventColor: decidedAt ? '#1f7a5a' : r.caseStatus === 'needs_edit' ? '#a8660d' : '#17324d', phase: decidedAt ? 'done' : 'open',
+        eventColor: decidedAt ? '#1f7a5a' : r.caseStatus === 'needs_edit' ? '#a8660d' : '#17324d', eventStyle: 'plain', phase: decidedAt ? 'done' : 'open',
       });
       if (!decidedAt && !closed) {
         events.push({
-          id: `${d.id}-window`, resourceId: d.id, name: `${Math.max(0, Math.round((due - now) / DAY))} days left to respond`,
+          id: `${d.id}-window`, resourceId: d.id, name: `${Math.max(0, Math.round((due - now) / DAY))}d left`,
           startDate: new Date(Math.max(now, opened + DAY / 3)), endDate: new Date(Math.max(due, now + DAY / 3)),
           eventColor: due - now < 3 * DAY ? '#b23b31' : '#c9a227', eventStyle: 'hollow', phase: 'window',
         });
@@ -62,18 +62,23 @@ export default function TimelineView({ overview }: { overview?: Overview }) {
         });
       }
       if (!closed && !decidedAt) {
-        ranges.push({ id: `due-${d.id}`, resourceId: d.id, name: 'Due', startDate: startOfDay(due), endDate: new Date(startOfDay(due).getTime() + DAY), cls: 'due-band' });
+        ranges.push({ id: `due-${d.id}`, resourceId: d.id, name: '', startDate: startOfDay(due), endDate: new Date(startOfDay(due).getTime() + DAY), cls: 'due-band' });
       }
     }
-    return { resources, events, ranges };
+    const starts = events.map((e) => (e.startDate as Date).getTime());
+    const ends = events.map((e) => (e.endDate as Date).getTime());
+    const from = startOfDay(Math.min(now - 2 * DAY, ...starts) - DAY);
+    const to = startOfDay(Math.max(now + 7 * DAY, ...ends) + 2 * DAY);
+    return { resources, events, ranges, from, to };
   }, [overview]);
 
   if (!overview) return <div className="empty"><span className="spin" /> Loading…</div>;
 
   const props: BryntumSchedulerProps = {
-    startDate: startOfDay(Date.now() - 10 * DAY),
-    endDate: startOfDay(Date.now() + 15 * DAY),
+    startDate: data.from,
+    endDate: data.to,
     viewPreset: 'dayAndWeek',
+    forceFit: true,
     rowHeight: 58,
     barMargin: 9,
     readOnly: true,
@@ -107,7 +112,7 @@ export default function TimelineView({ overview }: { overview?: Overview }) {
         </div>
       </div>
       <div className="row small muted" style={{ marginBottom: 10, gap: 14 }}>
-        <span><i className="legend" style={{ background: '#17324d' }} /> Waiting for your approval</span>
+        <span><i className="legend" style={{ background: '#17324d' }} /> Drafted, needs your approval</span>
         <span><i className="legend hollow" style={{ borderColor: '#c9a227' }} /> Response window</span>
         <span><i className="legend" style={{ background: 'rgba(178,59,49,.18)' }} /> Due date</span>
         <span><i className="legend hollow" style={{ borderColor: '#2c5f9e' }} /> PayPal reviewing</span>

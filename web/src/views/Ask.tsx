@@ -33,7 +33,7 @@ export function AskView() {
     <>
       <div className="page-head">
         <div>
-          <h1>Ask Rebuttal</h1>
+          <h1>Ask Proofline</h1>
           <p>Questions about your disputes and orders, answered from live PayPal data. The assistant can look things up but cannot move money.</p>
         </div>
       </div>

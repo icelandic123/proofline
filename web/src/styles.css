@@ -32,7 +32,7 @@ a { color: var(--info); }
 .mono { font-family: var(--mono); font-size: 12.5px; }
 table .mono { white-space: nowrap; }
 
-.shell { display: grid; grid-template-columns: 228px 1fr; min-height: 100%; }
+.shell { display: grid; grid-template-columns: 228px minmax(0, 1fr); min-height: 100%; }
 .nav { background: var(--ink); color: #dfe6ee; padding: 20px 14px; display: flex; flex-direction: column; gap: 4px; position: sticky; top: 0; height: 100vh; }
 .brand { display: flex; align-items: center; gap: 10px; padding: 0 8px 18px; color: #fff; }
 .brand-mark { width: 30px; height: 30px; border-radius: 8px; background: #f4efe6; color: var(--ink); display: grid; place-items: center; font-weight: 700; font-size: 17px; }
@@ -46,7 +46,7 @@ table .mono { white-space: nowrap; }
 .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; background: var(--faint); }
 .dot.live { background: #4cc38a; box-shadow: 0 0 0 3px rgba(76, 195, 138, 0.2); }
 
-.main { padding: 26px 32px 60px; max-width: 1280px; width: 100%; }
+.main { padding: 26px 32px 60px; max-width: 1280px; width: 100%; min-width: 0; }
 .page-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
 .page-head h1 { font-size: 22px; margin: 0; font-weight: 600; color: var(--ink); }
 .page-head p { margin: 4px 0 0; color: var(--muted); }

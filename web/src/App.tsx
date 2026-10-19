@@ -30,7 +30,7 @@ const NAV = [
   { path: '/timeline', label: 'Deadlines', icon: '◷' },
   { path: '/insights', label: 'Insights', icon: '▤' },
   { path: '/protection', label: 'Protection', icon: '⛨' },
-  { path: '/ask', label: 'Ask Rebuttal', icon: '✦' },
+  { path: '/ask', label: 'Ask Proofline', icon: '✦' },
   { path: '/demo', label: 'Demo lab', icon: '⚗' },
   { path: '/shop', label: 'Demo shop', icon: '⌂' },
 ];
@@ -77,9 +77,9 @@ export default function App() {
     <div className="shell">
       <nav className="nav">
         <div className="brand">
-          <div className="brand-mark">R</div>
+          <div className="brand-mark">P</div>
           <div>
-            <div className="brand-name">Rebuttal</div>
+            <div className="brand-name">Proofline</div>
             <div className="brand-sub">Dispute defense for {config?.store.storeName ?? 'your store'}</div>
           </div>
         </div>

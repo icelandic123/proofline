@@ -20,9 +20,27 @@ describe('playbook', () => {
     expect(plan.recommended).not.toBe('FIGHT');
     expect(plan.checks.find((c) => c.id === 'uploaded')?.status).toBe('fail');
   });
-  it('caps a high-value case without signature confirmation', () => {
+  it('treats a missing signature on a high-value parcel as a weakness, not a disqualifier', () => {
     const plan = planCase(byId('PP-D-41188'), now);
-    expect(plan.checks.find((c) => c.id === 'signature')?.status).toBe('fail');
+    expect(plan.checks.find((c) => c.id === 'signature')?.status).toBe('unknown');
+    expect(plan.recommended).toBe('FIGHT');
+  });
+  it('counts Seller Protection: a covered "not received" claim costs only time to fight', () => {
+    const plan = planCase(byId('PP-D-41207'), now);
+    expect(plan.checks.find((c) => c.id === 'protection')?.status).toBe('pass');
+    expect(plan.options.find((o) => o.kind === 'FIGHT')?.expectedLoss).toBe(6);
+  });
+  it('does not count Seller Protection for card chargebacks of "not received"', () => {
+    const c = byId('PP-D-41207');
+    const plan = planCase({ ...c, dispute: { ...c.dispute, stage: 'CHARGEBACK' } }, now);
+    expect(plan.checks.find((k) => k.id === 'protection')?.status).toBe('fail');
+  });
+  it('rules out protection when the parcel went to another address', () => {
+    const c = byId('PP-D-41207');
+    const order = structuredClone(c.order!);
+    order.trackers[0].deliveredTo = { line1: '9 Other St', postalCode: '10001', countryCode: 'US' };
+    const plan = planCase({ ...c, order }, now);
+    expect(plan.checks.find((k) => k.id === 'address')?.status).toBe('fail');
     expect(plan.winProbability).toBeLessThanOrEqual(0.25);
   });
   it('offers options for not-as-described and sorts them by expected loss', () => {

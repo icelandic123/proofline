@@ -47,7 +47,7 @@ export function ShopView({ config }: { config?: Config }) {
       <div className="page-head">
         <div>
           <h1>{config?.store.storeName ?? 'Demo shop'}</h1>
-          <p>A small storefront wired to PayPal Checkout (sandbox). Every purchase lands in Rebuttal's Protection screen, where the agent makes sure it ships with tracking on PayPal.</p>
+          <p>A small storefront wired to PayPal Checkout (sandbox). Every purchase lands in Proofline's Protection screen, where the agent makes sure it ships with tracking on PayPal.</p>
         </div>
       </div>
       {config?.mode !== 'sandbox' && <div className="banner warn">The shop needs PayPal sandbox credentials, so it is disabled in offline mode.</div>}

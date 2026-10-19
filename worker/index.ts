@@ -21,6 +21,7 @@ export interface Env {
   /** Sandbox personal account used to open demo disputes. */
   PAYPAL_BUYER_EMAIL?: string;
   AI_MODEL?: string;
+  STUDIO_AI_MODEL?: string;
   /** Max demo actions (simulated disputes, verdicts) per hour across all visitors. */
   DEMO_HOURLY_LIMIT?: string;
 }
@@ -212,7 +213,7 @@ async function route(req: Request, env: Env, ctx: Ctx, exec: ExecutionContext): 
     await ctx.db.log({ actor: 'paypal', kind: 'order', orderId: order.id, text: `New order ${order.id} for ${order.amount.value} ${order.amount.currency_code} from ${order.buyerName ?? 'a buyer'}. No tracking yet.` });
     return json({ order });
   }
-  if (p === '/api/studio-agent' && method === 'POST') return json(await studioAgent(ctx, await body(req)));
+  if (p === '/api/studio-agent' && method === 'POST') return json(await studioAgent({ ...ctx, ai: env.AI, model: env.STUDIO_AI_MODEL || undefined }, await body(req)));
   throw new HttpError(404, 'Not found');
 }
 

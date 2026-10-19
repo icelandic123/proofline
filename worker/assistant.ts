@@ -1,4 +1,4 @@
-// "Ask Rebuttal": a read-only, tool-using assistant over the seller's cases
+// "Ask Proofline": a read-only, tool-using assistant over the seller's cases
 // and orders, plus the shipping-email reader that closes tracking gaps.
 // Neither can move money; actions always go through the approval screens.
 
@@ -72,7 +72,7 @@ export function protectionReport(orders: Order[]) {
   };
 }
 
-const ASK_SYSTEM = `You are Rebuttal, the dispute and Seller Protection assistant for a small PayPal seller.
+const ASK_SYSTEM = `You are Proofline, the dispute and Seller Protection assistant for a small PayPal seller.
 Answer the seller's question using the tools; never guess numbers. Keep answers under 120 words, in plain sentences.
 You cannot submit responses, refund or move money. If the seller wants an action, tell them which screen to approve it on.`;
 

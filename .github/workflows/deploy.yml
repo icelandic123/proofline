@@ -22,13 +22,13 @@ jobs:
       - run: npm run build
       - name: Find or create the D1 database
         run: |
-          id=$(npx wrangler d1 list --json | node -e 'const l=JSON.parse(require("fs").readFileSync(0));const d=l.find(x=>x.name==="rebuttal");if(d)console.log(d.uuid)')
+          id=$(npx wrangler d1 list --json | node -e 'const l=JSON.parse(require("fs").readFileSync(0));const d=l.find(x=>x.name==="proofline");if(d)console.log(d.uuid)')
           if [ -z "$id" ]; then
-            npx wrangler d1 create rebuttal
-            id=$(npx wrangler d1 list --json | node -e 'const l=JSON.parse(require("fs").readFileSync(0));console.log(l.find(x=>x.name==="rebuttal").uuid)')
+            npx wrangler d1 create proofline
+            id=$(npx wrangler d1 list --json | node -e 'const l=JSON.parse(require("fs").readFileSync(0));console.log(l.find(x=>x.name==="proofline").uuid)')
           fi
           sed -i "s/00000000-0000-0000-0000-000000000000/$id/" wrangler.toml
-      - run: npx wrangler d1 migrations apply rebuttal --remote
+      - run: npx wrangler d1 migrations apply proofline --remote
       - run: npx wrangler deploy
       - name: Set PayPal sandbox secrets
         if: ${{ env.PAYPAL_CLIENT_SECRET != '' }}

@@ -4,7 +4,7 @@
 
 import { checkGrounding } from '../shared/grounding';
 import { LISTINGS, STORE_POLICY } from '../shared/fixtures';
-import { planCase, REASON_LABEL } from '../shared/playbook';
+import { planCase, REASON_LABEL, sameAddress } from '../shared/playbook';
 import type { CaseFacts, CasePlan, Dispute, Draft } from '../shared/types';
 import type { CaseRow, Db } from './db';
 import type { Gateway, SellerAction } from './gateway';
@@ -31,7 +31,7 @@ export async function loadFacts(ctx: Ctx, disputeId: string, dispute?: Dispute):
   return { dispute: d, order, listings: LISTINGS, buyerPriorOrders: prior, storePolicy: STORE_POLICY };
 }
 
-const SYSTEM = `You are Rebuttal, an agent that answers PayPal disputes for a small online shop.
+const SYSTEM = `You are Proofline, an agent that answers PayPal disputes for a small online shop.
 You write to PayPal's dispute team on the seller's behalf.
 Rules:
 - Use ONLY facts from the FACTS JSON. Never invent dates, amounts, tracking numbers, ids, signatures, photos or refunds.
@@ -93,7 +93,10 @@ export function templateDraft(facts: CaseFacts, plan: CasePlan): { response: str
   for (const t of o?.trackers ?? []) {
     let s = `Shipped with ${t.carrier}, tracking ${t.trackingNumber}`;
     if (t.uploadedToPayPal) s += ', uploaded to PayPal';
-    if (t.carrierStatus === 'DELIVERED' && t.deliveredAt) s += `; the carrier shows it delivered on ${t.deliveredAt.slice(0, 10)} to the address on the transaction`;
+    if (t.carrierStatus === 'DELIVERED' && t.deliveredAt) {
+      s += `; the carrier shows it delivered on ${t.deliveredAt.slice(0, 10)}`;
+      if (sameAddress(t.deliveredTo, o?.shippingAddress)) s += ' to the shipping address on the PayPal transaction';
+    }
     points.push(s + '.');
   }
   for (const r of o?.refunds ?? []) points.push(`Refund ${r.id} for ${r.amount.value} ${r.amount.currency_code} was issued on ${r.createdAt.slice(0, 10)}.`);
@@ -193,6 +196,7 @@ export async function submitCase(ctx: Ctx, disputeId: string, choice: { kind: 'F
 
 /** One pass of the agent's autopilot: tracking gaps get closed, then new or changed disputes get analysed. */
 export async function sweep(ctx: Ctx, opts: { autoUploadTracking: boolean }) {
+  const disputes = await ctx.gw.listDisputes();
   let uploaded = 0;
   if (opts.autoUploadTracking) {
     for (const o of await ctx.db.listOrders(100)) {
@@ -211,7 +215,6 @@ export async function sweep(ctx: Ctx, opts: { autoUploadTracking: boolean }) {
       }
     }
   }
-  const disputes = await ctx.gw.listDisputes();
   const cases = new Map((await ctx.db.listCases()).map((c) => [c.disputeId, c]));
   let analysed = 0;
   for (const d of disputes) {
