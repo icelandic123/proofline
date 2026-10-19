@@ -187,7 +187,10 @@ async function route(req: Request, env: Env, ctx: Ctx, exec: ExecutionContext): 
     const { question } = await body<{ question: string }>(req);
     return json(await ask(ctx, String(question ?? '')));
   }
-  if (p === '/api/sweep' && method === 'POST') return json(await sweep(ctx, { autoUploadTracking: true }));
+  if (p === '/api/sweep' && method === 'POST') {
+    const opts = await body<{ autoUploadTracking?: boolean }>(req).catch(() => ({}) as { autoUploadTracking?: boolean });
+    return json(await sweep(ctx, { autoUploadTracking: opts.autoUploadTracking !== false }));
+  }
   if (p === '/api/demo/dispute' && method === 'POST') {
     const { scenario } = await body<{ scenario: ScenarioId }>(req);
     const out = await createScenario(ctx, env, scenario);

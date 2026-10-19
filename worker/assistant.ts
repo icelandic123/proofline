@@ -3,7 +3,7 @@
 // Neither can move money; actions always go through the approval screens.
 
 import { REASON_LABEL, daysLeft } from '../shared/playbook';
-import { validateTracking } from '../shared/tracking';
+import { detectCarriers, normaliseTracking, validateTracking } from '../shared/tracking';
 import type { Order } from '../shared/types';
 import { isOpen, type Ctx } from './agent';
 import type { ChatMessage, ToolSpec } from './llm';
@@ -114,6 +114,31 @@ Return only JSON: {"shipments": [{"order_ref": string|null, "buyer_name": string
 Copy tracking numbers exactly as written. Do not invent shipments.`;
 
 /** Reads pasted shipping emails or label exports and matches each shipment to an order. */
+/** Without the AI: tracking-shaped numbers (spaces allowed), plus any order id or buyer name in the text. */
+export function patternShipments(text: string, orders: Order[]) {
+  const upper = text.toUpperCase();
+  const order = orders.find((o) => upper.includes(o.id.toUpperCase()));
+  const buyer = orders.find((o) => o.buyerName && upper.includes(o.buyerName.toUpperCase()))?.buyerName;
+  const seen = new Set<string>();
+  const out: { order_ref?: string | null; buyer_name?: string | null; carrier?: string | null; tracking_number: string }[] = [];
+  const isTracking = (t: string) => t !== order?.id.toUpperCase() && /\d{6}/.test(t) && detectCarriers(t).length > 0;
+  for (const m of upper.matchAll(/\b[0-9A-Z]{2,}(?:[ -][0-9A-Z]{2,})*\b/g)) {
+    // Numbers are often printed in groups ("1Z99 9AA1 ..."): take the longest run of groups that fits a carrier.
+    const parts = m[0].split(/[ -]/);
+    for (let i = 0; i < parts.length; i++) {
+      for (let j = parts.length; j > i; j--) {
+        const t = parts.slice(i, j).join('');
+        if (!isTracking(t)) continue;
+        if (!seen.has(t)) out.push({ tracking_number: t, order_ref: order?.id ?? null, buyer_name: buyer ?? null });
+        seen.add(t);
+        i = j - 1;
+        break;
+      }
+    }
+  }
+  return out;
+}
+
 export async function parseShipments(ctx: Ctx, text: string): Promise<{ proposals: TrackingProposal[]; model: string }> {
   let found: { order_ref?: string | null; buyer_name?: string | null; carrier?: string | null; tracking_number: string }[] = [];
   let model = 'pattern';
@@ -126,11 +151,8 @@ export async function parseShipments(ctx: Ctx, text: string): Promise<{ proposal
       found = [];
     }
   }
-  if (!found.length) {
-    // Fallback: anything shaped like a tracking number.
-    for (const m of text.matchAll(/\b(1Z[0-9A-Z]{16}|9\d{21}|\d{12}|\d{10})\b/g)) found.push({ tracking_number: m[1] });
-  }
   const orders = await ctx.db.listOrders(200);
+  if (!found.length) found = patternShipments(text, orders);
   const proposals = found.map((s) => {
     const v = validateTracking(s.carrier ?? undefined, s.tracking_number);
     const ref = (s.order_ref ?? '').toUpperCase();

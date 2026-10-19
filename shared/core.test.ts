@@ -89,3 +89,12 @@ describe('tracking validation', () => {
     expect(validateTracking(undefined, '1Z999AA10123456784').carrier).toBe('UPS');
   });
 });
+
+describe('pattern shipments', async () => {
+  const { patternShipments } = await import('../worker/assistant');
+  it('joins grouped tracking numbers and finds the order', () => {
+    const orders = [{ id: '2WD71882KK0019443', buyerName: 'Jo Whitfield', trackers: [], refunds: [], items: [], amount: { currency_code: 'USD', value: '1' }, createdAt: '' }] as never;
+    const r = patternShipments('Your label is ready! Order #2WD71882KK0019443 for Jo Whitfield\nCarrier: UPS Ground · Tracking: 1Z99 9AA1 0123 4567 84\nShip by: tomorrow', orders);
+    expect(r).toEqual([{ tracking_number: '1Z999AA10123456784', order_ref: '2WD71882KK0019443', buyer_name: 'Jo Whitfield' }]);
+  });
+});

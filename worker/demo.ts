@@ -37,7 +37,7 @@ export const SCENARIOS: Record<ScenarioId, Scenario> = {
   },
   'snad-colour': {
     title: '"Not as described": the glaze looks darker',
-    expect: 'Agent compares the options and suggests a partial refund',
+    expect: 'Agent weighs fighting a $34 mug claim against taking it back',
     reason: 'MERCHANDISE_OR_SERVICE_NOT_AS_DESCRIBED',
     sku: 'FH-MUG-SAGE',
     buyerNote: 'The mug is much darker green than the photo and has a dark spot near the rim.',
@@ -45,7 +45,7 @@ export const SCENARIOS: Record<ScenarioId, Scenario> = {
   },
   'unauthorised-no-signature': {
     title: '"I didn\'t make this payment" on an $840 order',
-    expect: 'Agent flags the missing signature and weighs a weak fight against losing the full $840',
+    expect: 'Agent checks Seller Protection and the chargeback fee before it fights',
     reason: 'UNAUTHORISED',
     sku: 'FH-DINNER-12',
     buyerNote: 'I do not recognise this payment.',
