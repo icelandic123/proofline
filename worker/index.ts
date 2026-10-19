@@ -20,6 +20,8 @@ export interface Env {
   PAYPAL_CLIENT_SECRET?: string;
   /** Sandbox personal account used to open demo disputes. */
   PAYPAL_BUYER_EMAIL?: string;
+  /** Sandbox business account's merchant id, for simulated chargebacks. Learned from orders when unset. */
+  PAYPAL_MERCHANT_ID?: string;
   AI_MODEL?: string;
   STUDIO_AI_MODEL?: string;
   /** Max demo actions (simulated disputes, verdicts) per hour across all visitors. */
@@ -29,7 +31,7 @@ export interface Env {
 function context(env: Env): Ctx {
   const db = new Db(env.DB);
   const gw: Gateway = env.PAYPAL_CLIENT_ID && env.PAYPAL_CLIENT_SECRET
-    ? new SandboxGateway(env.PAYPAL_CLIENT_ID, env.PAYPAL_CLIENT_SECRET, db, env.PAYPAL_BUYER_EMAIL)
+    ? new SandboxGateway(env.PAYPAL_CLIENT_ID, env.PAYPAL_CLIENT_SECRET, db, env.PAYPAL_BUYER_EMAIL, env.PAYPAL_MERCHANT_ID)
     : new OfflineGateway(db);
   return { db, gw, llm: new Llm(env.AI, env.AI_MODEL || undefined) };
 }

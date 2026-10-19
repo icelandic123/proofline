@@ -110,8 +110,19 @@ export class SandboxGateway implements Gateway {
   readonly pp: PayPalClient;
   private cache = new Map<string, { at: number; value: Dispute }>();
 
-  constructor(clientId: string, secret: string, private db: Db, private buyerEmail?: string) {
+  constructor(
+    private clientId: string,
+    secret: string,
+    private db: Db,
+    private buyerEmail?: string,
+    private merchantId?: string,
+  ) {
     this.pp = new PayPalClient(clientId, secret);
+  }
+
+  /** The sandbox shop's merchant id, from config or from the payee of an order we created. */
+  private learnMerchant(pu?: PpPurchaseUnit) {
+    if (!this.merchantId && pu?.payee?.merchant_id) this.merchantId = pu.payee.merchant_id;
   }
 
   async listDisputes(): Promise<Dispute[]> {
@@ -194,9 +205,11 @@ export class SandboxGateway implements Gateway {
       },
       { 'PayPal-Request-Id': crypto.randomUUID(), Prefer: 'return=representation' },
     );
+    this.learnMerchant(created.purchase_units?.[0]);
     let capture = created.purchase_units?.[0]?.payments?.captures?.[0];
     if (!capture) {
       const captured = await this.pp.request<{ purchase_units?: PpPurchaseUnit[] }>('POST', `/v2/checkout/orders/${created.id}/capture`, {}, { 'PayPal-Request-Id': crypto.randomUUID(), Prefer: 'return=representation' });
+      this.learnMerchant(captured.purchase_units?.[0]);
       capture = captured.purchase_units?.[0]?.payments?.captures?.[0];
     }
     if (!capture) throw new Error('PayPal did not return a capture for the demo order');
@@ -208,40 +221,85 @@ export class SandboxGateway implements Gateway {
     return order;
   }
 
-  /** Sandbox: the demo buyer files a dispute (a card chargeback for unauthorised claims). */
+  /**
+   * Sandbox: the demo buyer files a dispute. PayPal's buyer-side create call
+   * needs scopes most developer apps don't have, so we try it first and fall
+   * back to a simulated card chargeback, which only needs the seller's token.
+   * Demo orders are paid by card, so both routes apply.
+   */
   async openDispute(order: Order, reason: DisputeReason, buyerNote: string): Promise<string> {
     if (!order.captureId) throw new Error('Order has no capture');
-    if (reason === 'UNAUTHORISED') {
-      const r = await this.pp.request<{ dispute_id?: string; links?: PpLink[] }>('POST', '/v2/customer-support/process-chargeback', {
-        adjacency: 'PAYPAL',
-        file_layout: 'ATCK_CB',
-        financial_institution: { processor: 'FDMS' },
-        instrument: { instrument_type: 'CARD' },
-        transaction: { id_enc: order.captureId },
-        reason_code: 'C2',
-        amount: order.amount,
-      });
-      return r.dispute_id ?? idFromLinks(r.links);
+    if (reason !== 'UNAUTHORISED' && this.buyerEmail) {
+      try {
+        return await this.openBuyerDispute(order, reason, buyerNote);
+      } catch (e) {
+        if (!(e instanceof PayPalError) || e.status >= 500) throw e;
+      }
     }
-    const r = await this.pp.request<{ links?: PpLink[]; dispute_id?: string }>(
-      'POST',
-      '/v1/customer/disputes',
-      {
-        disputed_transactions: [{ seller_transaction_id: order.captureId }],
-        reason,
-        dispute_amount: order.amount,
-        message: buyerNote,
+    return this.openChargeback(order, reason);
+  }
+
+  async openBuyerDispute(order: Order, reason: DisputeReason, buyerNote: string): Promise<string> {
+    const form = new FormData();
+    const input = {
+      disputed_transactions: [{ buyer_transaction_id: order.captureId }],
+      reason,
+      dispute_amount: order.amount,
+      extensions: {
+        merchant_contacted: true,
+        merchant_contacted_outcome: 'NO_RESPONSE',
+        ...(reason === 'MERCHANDISE_OR_SERVICE_NOT_RECEIVED' || reason === 'MERCHANDISE_OR_SERVICE_NOT_AS_DESCRIBED'
+          ? { merchandize_dispute_properties: { issue_type: order.intangible ? 'SERVICE' : 'PRODUCT' } }
+          : {}),
       },
-      this.buyerEmail ? { 'PayPal-Auth-Assertion': authAssertion(this.buyerEmail) } : {},
-    );
+      evidences: [{ evidence_type: 'OTHER', notes: buyerNote.slice(0, 2000) }],
+    };
+    form.append('input', new Blob([JSON.stringify(input)], { type: 'application/json' }));
+    const r = await this.pp.request<{ links?: PpLink[]; dispute_id?: string }>('POST', '/v1/customer/disputes', form, {
+      'PayPal-Auth-Assertion': authAssertion(this.clientId, this.buyerEmail!),
+    });
     return r.dispute_id ?? idFromLinks(r.links);
   }
 
+  async openChargeback(order: Order, reason: DisputeReason): Promise<string> {
+    if (!this.merchantId) throw new Error('Set PAYPAL_MERCHANT_ID (the sandbox business account\'s merchant id) to simulate chargebacks');
+    const now = Date.now();
+    const iso = (ms: number) => new Date(ms).toISOString();
+    const digits = (n: number) => Array.from({ length: n }, () => Math.floor(Math.random() * 10)).join('');
+    const r = await this.pp.request<{ dispute_id?: string; links?: PpLink[] }>('POST', '/v2/customer-support/process-chargeback', {
+      adjacency: 'PAYPAL',
+      file_layout: 'ATCK_CB',
+      merchant_id: this.merchantId,
+      financial_institution: { processor: 'FDMS' },
+      transaction: { id_enc: order.captureId, amount: order.amount },
+      instrument: { instrument_type: 'CARD', card_brand: 'VISA', credit_card_transaction_id: digits(16), external: false },
+      dispute: {
+        id: null,
+        stage: 'CHARGEBACK',
+        status: '2',
+        amount: order.amount,
+        receive_date: iso(now),
+        money_movement_date: iso(now),
+        response_date: iso(now + 10 * 86_400_000),
+        event_code: 'CHARGEBACK_INITIATED',
+        event_type: 'DEBIT',
+        chargeback_type: 'REPORTED_TO_PROCESSOR',
+        processor_info: { reference_number: digits(23), reason_code: CHARGEBACK_REASON[reason] ?? '1330', notes: 'PROOFLINE_DEMO' },
+      },
+    });
+    return r.dispute_id ?? idFromLinks(r.links);
+  }
+
+  /**
+   * Sandbox: PayPal decides the case. PayPal only allows this once the case
+   * is UNDER_REVIEW, which can take a few minutes after the seller answers.
+   */
   async adjudicate(id: string, sellerWins: boolean): Promise<void> {
     const path = `/v1/customer/disputes/${encodeURIComponent(id)}`;
+    this.cache.delete(id);
     const d = await this.getDispute(id);
-    if (d.status !== 'UNDER_REVIEW' && d.allowedActions.includes('require-evidence')) {
-      await this.pp.request('POST', `${path}/require-evidence`, { action: 'SELLER_EVIDENCE' });
+    if (!d.allowedActions.includes('adjudicate')) {
+      throw new PayPalError(409, undefined, { status: d.status, actions: d.allowedActions }, `PayPal is not ready to decide ${id} yet (status ${d.status}). Try again in a few minutes.`);
     }
     await this.pp.request('POST', `${path}/adjudicate`, { adjudication_outcome: sellerWins ? 'SELLER_FAVOR' : 'BUYER_FAVOR' });
     this.cache.delete(id);
@@ -273,12 +331,14 @@ export class SandboxGateway implements Gateway {
 
   async captureCheckoutOrder(orderId: string): Promise<Order> {
     const r = await this.pp.request<PpOrder>('POST', `/v2/checkout/orders/${encodeURIComponent(orderId)}/capture`, {}, { 'PayPal-Request-Id': `cap-${orderId}`, Prefer: 'return=representation' });
+    this.learnMerchant(r.purchase_units?.[0]);
     return orderFromPayPal(r);
   }
 }
 
 interface PpPurchaseUnit {
   reference_id?: string;
+  payee?: { merchant_id?: string; email_address?: string };
   amount?: { currency_code: string; value: string };
   items?: { name: string; sku?: string; quantity: string; unit_amount: { currency_code: string; value: string } }[];
   shipping?: { name?: { full_name?: string }; address?: { address_line_1?: string; address_line_2?: string; admin_area_2?: string; admin_area_1?: string; postal_code?: string; country_code?: string } };
@@ -328,10 +388,18 @@ function toPpAddress(a: NonNullable<Order['shippingAddress']>) {
 }
 
 /** Unsigned JWT naming the sandbox buyer, as PayPal's sandbox dispute-creation docs describe. */
-export function authAssertion(email: string) {
+export function authAssertion(clientId: string, email: string) {
   const b64 = (o: unknown) => btoa(JSON.stringify(o)).replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_');
-  return `${b64({ alg: 'none' })}.${b64({ email })}.`;
+  return `${b64({ alg: 'none', typ: 'JWT' })}.${b64({ iss: clientId, email })}.`;
 }
+
+// Visa reason codes in PayPal's four-digit form (13.1 -> 1310); PayPal's own sample uses 1330.
+const CHARGEBACK_REASON: Partial<Record<DisputeReason, string>> = {
+  MERCHANDISE_OR_SERVICE_NOT_RECEIVED: '1310',
+  MERCHANDISE_OR_SERVICE_NOT_AS_DESCRIBED: '1330',
+  CREDIT_NOT_PROCESSED: '1360',
+  UNAUTHORISED: '1040',
+};
 
 function idFromLinks(links?: PpLink[]): string {
   const href = links?.find((l) => /disputes\//.test(l.href))?.href ?? '';

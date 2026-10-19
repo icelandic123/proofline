@@ -11,13 +11,13 @@ import type { Db } from '../worker/db';
 import { planCase } from '../shared/playbook';
 import { LISTINGS, STORE_POLICY } from '../shared/fixtures';
 
-const { PAYPAL_CLIENT_ID, PAYPAL_CLIENT_SECRET, PAYPAL_BUYER_EMAIL } = process.env;
+const { PAYPAL_CLIENT_ID, PAYPAL_CLIENT_SECRET, PAYPAL_BUYER_EMAIL, PAYPAL_MERCHANT_ID } = process.env;
 if (!PAYPAL_CLIENT_ID || !PAYPAL_CLIENT_SECRET) {
   console.error('Set PAYPAL_CLIENT_ID and PAYPAL_CLIENT_SECRET');
   process.exit(2);
 }
 
-const gw = new SandboxGateway(PAYPAL_CLIENT_ID, PAYPAL_CLIENT_SECRET, {} as Db, PAYPAL_BUYER_EMAIL);
+const gw = new SandboxGateway(PAYPAL_CLIENT_ID, PAYPAL_CLIENT_SECRET, {} as Db, PAYPAL_BUYER_EMAIL, PAYPAL_MERCHANT_ID);
 const scenarios = (process.argv[2] ? [process.argv[2]] : Object.keys(SCENARIOS)) as ScenarioId[];
 let failures = 0;
 
@@ -49,7 +49,10 @@ for (const id of scenarios) {
   for (const t of order.trackers.filter((x) => x.uploadedToPayPal)) {
     await step(`upload ${t.carrier} tracking`, () => gw.addTracking(order, t.carrier, t.trackingNumber));
   }
-  const disputeId = await step('buyer opens dispute', () => gw.openDispute(order, SCENARIOS[id].reason, SCENARIOS[id].buyerNote));
+  // Try each creation route on its own so the log shows which one this app can use.
+  const reason = SCENARIOS[id].reason;
+  let disputeId = PAYPAL_BUYER_EMAIL && reason !== 'UNAUTHORISED' ? await step('buyer opens dispute (customer disputes API)', () => gw.openBuyerDispute(order, reason, SCENARIOS[id].buyerNote)) : undefined;
+  if (!disputeId) disputeId = await step('card issuer files chargeback (process-chargeback)', () => gw.openChargeback(order, reason));
   if (!disputeId) continue;
   let d = await step('read dispute', () => gw.getDispute(disputeId));
   for (let i = 0; d && d.status !== 'WAITING_FOR_SELLER_RESPONSE' && i < 6; i++) {
@@ -61,11 +64,19 @@ for (const id of scenarios) {
   const plan = planCase({ dispute: d, order, listings: LISTINGS, buyerPriorOrders: 0, storePolicy: STORE_POLICY });
   console.log(`       plan: ${plan.recommended} at ${plan.winProbability}, evidence=${plan.evidence.map((e) => e.type).join(',')}`);
   if (process.env.PROBE_RESPOND !== 'false') {
-    await step('send buyer message', () => gw.respond(disputeId, { kind: 'MESSAGE', text: 'Hi, we are looking into this now and will update you shortly.' }));
-    await step('provide evidence', () => gw.respond(disputeId, { kind: 'FIGHT', note: `Probe response for ${disputeId}.`, evidence: plan.evidence }));
-    await step('adjudicate (seller wins)', () => gw.adjudicate(disputeId, true));
+    await step('send buyer message', () => gw.respond(disputeId!, { kind: 'MESSAGE', text: 'Hi, we are looking into this now and will update you shortly.' }));
+    await step('provide evidence', () => gw.respond(disputeId!, { kind: 'FIGHT', note: `Probe response for ${disputeId}.`, evidence: plan.evidence }));
+    // PayPal moves the case to UNDER_REVIEW on its own schedule; wait up to 5 minutes.
+    for (let i = 0; i < 20; i++) {
+      const cur = await gw.getDispute(disputeId).catch(() => undefined);
+      if (cur?.allowedActions.includes('adjudicate')) break;
+      if (cur?.allowedActions.includes('require-evidence') && cur.status === 'UNDER_REVIEW') break;
+      if (i % 4 === 0) console.log(`       waiting for review: status=${cur?.status} actions=${cur?.allowedActions.join(',')}`);
+      await sleep(15000);
+    }
+    await step('adjudicate (seller wins)', () => gw.adjudicate(disputeId!, true));
     await step('final state', async () => {
-      const f = await gw.getDispute(disputeId);
+      const f = await gw.getDispute(disputeId!);
       return `${f.status} ${f.outcome ?? ''}`;
     });
   }

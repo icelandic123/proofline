@@ -31,12 +31,15 @@ jobs:
       - run: npx wrangler d1 migrations apply proofline --remote
       - run: npx wrangler deploy
       - name: Set PayPal sandbox secrets
-        if: ${{ env.PAYPAL_CLIENT_SECRET != '' }}
         env:
           PAYPAL_CLIENT_ID: ${{ secrets.PAYPAL_CLIENT_ID }}
           PAYPAL_CLIENT_SECRET: ${{ secrets.PAYPAL_CLIENT_SECRET }}
           PAYPAL_BUYER_EMAIL: ${{ secrets.PAYPAL_BUYER_EMAIL }}
+          PAYPAL_MERCHANT_ID: ${{ secrets.PAYPAL_MERCHANT_ID }}
         run: |
-          echo "$PAYPAL_CLIENT_ID" | npx wrangler secret put PAYPAL_CLIENT_ID
-          echo "$PAYPAL_CLIENT_SECRET" | npx wrangler secret put PAYPAL_CLIENT_SECRET
-          if [ -n "$PAYPAL_BUYER_EMAIL" ]; then echo "$PAYPAL_BUYER_EMAIL" | npx wrangler secret put PAYPAL_BUYER_EMAIL; fi
+          put() { if [ -n "$2" ]; then echo "$2" | npx wrangler secret put "$1"; fi; }
+          if [ -z "$PAYPAL_CLIENT_SECRET" ]; then echo "No PayPal secrets set; the app runs on offline demo data."; exit 0; fi
+          put PAYPAL_CLIENT_ID "$PAYPAL_CLIENT_ID"
+          put PAYPAL_CLIENT_SECRET "$PAYPAL_CLIENT_SECRET"
+          put PAYPAL_BUYER_EMAIL "$PAYPAL_BUYER_EMAIL"
+          put PAYPAL_MERCHANT_ID "$PAYPAL_MERCHANT_ID"
