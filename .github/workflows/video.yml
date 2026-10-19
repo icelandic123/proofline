@@ -1,0 +1,35 @@
+name: Demo video
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: Proofline deployment to record
+        required: true
+jobs:
+  video:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Narration
+        run: |
+          pip install kokoro-onnx soundfile
+          base=https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0
+          curl -sSLo kokoro.onnx $base/kokoro-v1.0.int8.onnx
+          curl -sSLo voices.bin $base/voices-v1.0.bin
+          node -e "import('./scripts/video/storyboard.mjs').then(m=>require('fs').writeFileSync('scenes.json',JSON.stringify(m.scenes.map(s=>({id:s.id,say:s.say})))))"
+          python scripts/video/tts.py scenes.json video/out/audio kokoro.onnx voices.bin
+      - run: node scripts/video/record.mjs "${{ inputs.url }}" video/out/audio video/out/proofline.mp4
+      - uses: actions/upload-artifact@v4
+        with:
+          name: proofline-video
+          path: video/out/proofline.mp4
